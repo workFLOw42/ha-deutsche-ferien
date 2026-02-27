@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+import traceback
+from datetime import date
 from typing import Any
+
+import aiohttp
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -24,6 +27,10 @@ WOCHENTAGE = [
     "Sonntag",
 ]
 
+REQUEST_HEADERS = {
+    "Accept": "application/json",
+}
+
 
 class FerienApiError(Exception):
     """Error communicating with holiday APIs."""
@@ -31,13 +38,72 @@ class FerienApiError(Exception):
 
 def _get_localized_name(name_list: list[dict], fallback: str = "Ferien") -> str:
     """Extract German name from OpenHolidaysAPI name array."""
+    if not name_list:
+        return fallback
     for entry in name_list:
         if entry.get("language") == "DE":
             return entry.get("text", fallback)
-    # Fallback to first entry
-    if name_list:
-        return name_list[0].get("text", fallback)
-    return fallback
+    return name_list[0].get("text", fallback)
+
+
+async def _api_request(
+    session: aiohttp.ClientSession,
+    url: str,
+    label: str,
+) -> list[dict] | None:
+    """Make an API request with full error logging."""
+    _LOGGER.info("API request [%s]: %s", label, url)
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with session.get(
+            url,
+            headers=REQUEST_HEADERS,
+            timeout=timeout,
+        ) as resp:
+            _LOGGER.info(
+                "API response [%s]: HTTP %s, Content-Type: %s",
+                label,
+                resp.status,
+                resp.content_type,
+            )
+
+            if resp.status != 200:
+                body = await resp.text()
+                _LOGGER.error(
+                    "API error [%s]: HTTP %s – %s",
+                    label, resp.status, body[:500],
+                )
+                return None
+
+            data = await resp.json()
+
+            if isinstance(data, list):
+                _LOGGER.info(
+                    "API success [%s]: %d entries received",
+                    label, len(data),
+                )
+            else:
+                _LOGGER.warning(
+                    "API unexpected [%s]: response is %s, not list",
+                    label, type(data).__name__,
+                )
+                return None
+
+            return data
+
+    except aiohttp.ClientError as err:
+        _LOGGER.error("API client error [%s]: %s", label, err)
+        return None
+    except TimeoutError:
+        _LOGGER.error("API timeout [%s]: %s", label, url)
+        return None
+    except Exception as err:
+        _LOGGER.error(
+            "API unexpected error [%s]: %s\n%s",
+            label, err, traceback.format_exc(),
+        )
+        return None
 
 
 async def fetch_ferien(
@@ -46,11 +112,7 @@ async def fetch_ferien(
     von: date,
     bis: date,
 ) -> tuple[list[dict[str, Any]], list[int]]:
-    """Fetch school holidays from OpenHolidaysAPI.
-
-    Returns:
-        Tuple of (ferien_list, missing_years)
-    """
+    """Fetch school holidays from OpenHolidaysAPI."""
     session = async_get_clientsession(hass)
     subdivision = BUNDESLAND_TO_SUBDIVISION.get(bundesland, f"DE-{bundesland}")
 
@@ -63,34 +125,33 @@ async def fetch_ferien(
         f"&subdivisionCode={subdivision}"
     )
 
-    _LOGGER.debug("Fetching Ferien: %s", url)
-
     ferien: list[dict[str, Any]] = []
+    all_years = list(range(von.year, bis.year + 1))
+
+    data = await _api_request(session, url, f"Ferien-{bundesland}")
+    if data is None:
+        return ferien, all_years
+
     seen: set[tuple[str, str, str]] = set()
     years_with_data: set[int] = set()
 
-    try:
-        async with session.get(url, timeout=30) as resp:
-            if resp.status != 200:
-                _LOGGER.error("HTTP %s for %s", resp.status, url)
-                return ferien, list(range(von.year, bis.year + 1))
-            data = await resp.json()
-    except Exception as err:
-        _LOGGER.error("Error fetching %s: %s", url, err)
-        return ferien, list(range(von.year, bis.year + 1))
-
-    if not data:
-        _LOGGER.warning("Empty response from %s", url)
-        return ferien, list(range(von.year, bis.year + 1))
-
-    _LOGGER.debug("Received %d school holiday entries", len(data))
-
-    for entry in data:
+    for i, entry in enumerate(data):
         try:
-            start = date.fromisoformat(entry.get("startDate", ""))
-            end = date.fromisoformat(entry.get("endDate", ""))
+            start_str = entry.get("startDate", "")
+            end_str = entry.get("endDate", "")
+
+            if not start_str or not end_str:
+                _LOGGER.warning(
+                    "Entry %d missing dates: %s", i, entry
+                )
+                continue
+
+            start = date.fromisoformat(start_str)
+            end = date.fromisoformat(end_str)
         except (ValueError, TypeError) as err:
-            _LOGGER.warning("Cannot parse dates in %s: %s", entry, err)
+            _LOGGER.warning(
+                "Entry %d date parse error: %s – %s", i, entry, err
+            )
             continue
 
         name = _get_localized_name(entry.get("name", []), "Ferien")
@@ -98,7 +159,6 @@ async def fetch_ferien(
         years_with_data.add(start.year)
         years_with_data.add(end.year)
 
-        # De-duplicate
         key = (name, start.isoformat(), end.isoformat())
         if key in seen:
             continue
@@ -112,23 +172,16 @@ async def fetch_ferien(
             }
         )
 
-    # Determine missing years
     requested_years = set(range(von.year, bis.year + 1))
     missing_years = sorted(requested_years - years_with_data)
-
-    if missing_years:
-        _LOGGER.warning(
-            "No Ferien data for years: %s", missing_years
-        )
 
     ferien.sort(key=lambda x: x["start"])
 
     _LOGGER.info(
-        "Fetched %d Ferien for %s (%s → %s), missing years: %s",
-        len(ferien),
+        "RESULT Ferien %s: %d entries, years with data: %s, missing: %s",
         bundesland,
-        von,
-        bis,
+        len(ferien),
+        sorted(years_with_data),
         missing_years or "none",
     )
 
@@ -143,11 +196,7 @@ async def fetch_feiertage(
     include_national: bool = True,
     include_regional: bool = True,
 ) -> tuple[list[dict[str, Any]], list[int]]:
-    """Fetch public holidays from OpenHolidaysAPI.
-
-    Returns:
-        Tuple of (feiertage_list, missing_years)
-    """
+    """Fetch public holidays from OpenHolidaysAPI."""
     session = async_get_clientsession(hass)
     subdivision = BUNDESLAND_TO_SUBDIVISION.get(bundesland, f"DE-{bundesland}")
 
@@ -160,56 +209,55 @@ async def fetch_feiertage(
         f"&subdivisionCode={subdivision}"
     )
 
-    _LOGGER.debug("Fetching Feiertage: %s", url)
-
     feiertage: list[dict[str, Any]] = []
+    all_years = list(range(von.year, bis.year + 1))
+
+    data = await _api_request(session, url, f"Feiertage-{bundesland}")
+    if data is None:
+        return feiertage, all_years
+
     seen: set[tuple[str, str]] = set()
     years_with_data: set[int] = set()
 
-    try:
-        async with session.get(url, timeout=30) as resp:
-            if resp.status != 200:
-                _LOGGER.error("HTTP %s for %s", resp.status, url)
-                return feiertage, list(range(von.year, bis.year + 1))
-            data = await resp.json()
-    except Exception as err:
-        _LOGGER.error("Error fetching %s: %s", url, err)
-        return feiertage, list(range(von.year, bis.year + 1))
-
-    if not data:
-        return feiertage, list(range(von.year, bis.year + 1))
-
-    _LOGGER.debug("Received %d public holiday entries", len(data))
-
-    for entry in data:
+    for i, entry in enumerate(data):
         try:
             d = date.fromisoformat(entry.get("startDate", ""))
         except (ValueError, TypeError):
+            _LOGGER.warning("Entry %d date parse error: %s", i, entry)
             continue
 
         name = _get_localized_name(entry.get("name", []), "Feiertag")
 
-        # Determine type
-        is_national = entry.get("nationwide", False)
+        # Determine type based on API response
+        nationwide = entry.get("nationwide", False)
         subdivisions = entry.get("subdivisions") or []
         subdivision_codes = [s.get("code", "") for s in subdivisions]
         is_regional = subdivision in subdivision_codes
 
-        # Filter based on user preferences
+        # When subdivisionCode is set in request, API returns
+        # both national and regional holidays for that subdivision.
+        # We need to classify them correctly.
         include = False
         tag_type = ""
-        if is_national and include_national:
+
+        if nationwide and include_national:
             include = True
             tag_type = "national"
         elif is_regional and include_regional:
             include = True
             tag_type = "regional"
-        elif not subdivisions and include_national:
-            # No subdivision info = treat as national
+        elif not nationwide and not subdivisions and include_national:
+            # Edge case: no subdivision info, treat as national
             include = True
             tag_type = "national"
 
         if not include:
+            _LOGGER.debug(
+                "Skipping Feiertag '%s' (%s): nationwide=%s, regional=%s, "
+                "include_national=%s, include_regional=%s",
+                name, d, nationwide, is_regional,
+                include_national, include_regional,
+            )
             continue
 
         years_with_data.add(d.year)
@@ -234,11 +282,10 @@ async def fetch_feiertage(
     feiertage.sort(key=lambda x: x["datum"])
 
     _LOGGER.info(
-        "Fetched %d Feiertage for %s (%s → %s), missing years: %s",
-        len(feiertage),
+        "RESULT Feiertage %s: %d entries, years with data: %s, missing: %s",
         bundesland,
-        von,
-        bis,
+        len(feiertage),
+        sorted(years_with_data),
         missing_years or "none",
     )
 

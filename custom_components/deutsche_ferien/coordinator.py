@@ -26,14 +26,36 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _compute_date_range() -> tuple[date, date]:
-    """Today → 30 Sep of (current_year + YEARS_AHEAD).
+    """Compute the date range for holiday data.
 
-    Ensures we always capture summer holidays of the target year
-    (they end by mid-September in all Bundesländer).
+    Start: 1 August of the previous year (to capture the full current school year,
+           including Weihnachtsferien that start in December of the previous year).
+    End:   30 September of (current_year + YEARS_AHEAD) to capture summer holidays.
+
+    Example for today = 2026-02-27:
+        von = 2025-08-01  (captures Weihnachtsferien 2025, Winterferien 2026, etc.)
+        bis = 2029-09-30  (captures Sommerferien 2029)
     """
     today = date.today()
-    target_year = today.year + YEARS_AHEAD
-    return today, date(target_year, 9, 30)
+
+    # School year starts ~August. Go back to Aug 1 of previous year
+    # to ensure we have the full current school year.
+    if today.month >= 8:
+        # We're in the new school year (Aug-Dec)
+        start_year = today.year
+    else:
+        # We're in Jan-Jul, school year started previous August
+        start_year = today.year - 1
+
+    von = date(start_year, 8, 1)
+    bis = date(today.year + YEARS_AHEAD, 9, 30)
+
+    _LOGGER.debug(
+        "Date range computed: %s → %s (today=%s, start_year=%s)",
+        von, bis, today, start_year,
+    )
+
+    return von, bis
 
 
 class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -54,6 +76,14 @@ class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.last_yaml_path: str | None = None
 
+        _LOGGER.info(
+            "Initializing FerienCoordinator for %s "
+            "(national=%s, regional=%s)",
+            self.bundesland,
+            self.include_national,
+            self.include_regional,
+        )
+
         super().__init__(
             hass,
             _LOGGER,
@@ -69,16 +99,28 @@ class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         try:
-            # ── Fetch Ferien (single bulk request) ────────────────────
-            ferien, ferien_missing_years = await fetch_ferien(
+            # ── Fetch Ferien ──────────────────────────────────────────
+            _LOGGER.info("Fetching Ferien for %s...", self.bundesland)
+            ferien, ferien_missing = await fetch_ferien(
                 self.hass, self.bundesland, von, bis
             )
+            _LOGGER.info(
+                "Ferien result: %d entries, missing years: %s",
+                len(ferien), ferien_missing or "none",
+            )
 
-            # ── Fetch Feiertage (per-year requests, optional) ─────────
+            # ── Fetch Feiertage (optional) ────────────────────────────
             feiertage: list[dict[str, Any]] | None = None
-            feiertage_missing_years: list[int] = []
+            feiertage_missing: list[int] = []
+
             if self.include_national or self.include_regional:
-                feiertage, feiertage_missing_years = await fetch_feiertage(
+                _LOGGER.info(
+                    "Fetching Feiertage for %s (national=%s, regional=%s)...",
+                    self.bundesland,
+                    self.include_national,
+                    self.include_regional,
+                )
+                feiertage, feiertage_missing = await fetch_feiertage(
                     self.hass,
                     self.bundesland,
                     von,
@@ -86,9 +128,16 @@ class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     include_national=self.include_national,
                     include_regional=self.include_regional,
                 )
+                _LOGGER.info(
+                    "Feiertage result: %d entries, missing years: %s",
+                    len(feiertage), feiertage_missing or "none",
+                )
+            else:
+                _LOGGER.info("Feiertage disabled, skipping")
 
             # ── Write YAML (blocking I/O → executor) ─────────────────
             config_dir = self.hass.config.path()
+            _LOGGER.info("Writing YAML to %s...", config_dir)
             self.last_yaml_path = await self.hass.async_add_executor_job(
                 write_ferien_yaml,
                 config_dir,
@@ -96,7 +145,13 @@ class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ferien,
                 feiertage,
             )
+            _LOGGER.info("YAML written to %s", self.last_yaml_path)
+
         except Exception as err:
+            _LOGGER.error(
+                "Error updating %s: %s", self.bundesland, err,
+                exc_info=True,
+            )
             raise UpdateFailed(
                 f"Error updating {self.bundesland}: {err}"
             ) from err
@@ -105,10 +160,13 @@ class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         today = date.today()
         today_str = today.isoformat()
 
-        # Combine missing years from both sources
-        all_missing = sorted(
-            set(ferien_missing_years + feiertage_missing_years)
-        )
+        # Determine last year with Ferien data
+        last_ferien_year = None
+        if ferien:
+            last_date = max(
+                date.fromisoformat(f["end"]) for f in ferien
+            )
+            last_ferien_year = last_date.year
 
         result: dict[str, Any] = {
             "bundesland": self.bundesland,
@@ -128,8 +186,14 @@ class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "tage_bis_naechster_feiertag": None,
             "heute_schulfrei": False,
             "heute_grund": None,
-            "fehlende_jahre": all_missing,
-            "daten_vollstaendig": len(all_missing) == 0,
+            "ferien_fehlende_jahre": ferien_missing,
+            "feiertage_fehlende_jahre": feiertage_missing,
+            "ferien_daten_bis": last_ferien_year,
+            "ferien_vollstaendig": len(ferien_missing) == 0,
+            "feiertage_vollstaendig": len(feiertage_missing) == 0,
+            "daten_vollstaendig": (
+                len(ferien_missing) == 0 and len(feiertage_missing) == 0
+            ),
         }
 
         # ── Current / next Ferien ─────────────────────────────────────
@@ -170,11 +234,33 @@ class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     result["heute_grund"] = ft["name"]
                     break
 
-        if all_missing:
+        # ── Log summary ───────────────────────────────────────────────
+        _LOGGER.info(
+            "Update complete for %s: %d Ferien (bis %s), %d Feiertage, "
+            "heute_schulfrei=%s, naechste=%s, vollstaendig=%s",
+            self.bundesland,
+            result["ferien_count"],
+            last_ferien_year or "?",
+            result["feiertage_count"],
+            result["heute_schulfrei"],
+            result["naechste_ferien"],
+            result["daten_vollstaendig"],
+        )
+
+        if ferien_missing:
             _LOGGER.warning(
-                "Ferien/Feiertage data missing for years: %s "
-                "(APIs may not have published data yet)",
-                all_missing,
+                "Ferien data missing for %s: years %s "
+                "(API has data up to %s)",
+                self.bundesland,
+                ferien_missing,
+                last_ferien_year or "unknown",
+            )
+
+        if feiertage_missing:
+            _LOGGER.warning(
+                "Feiertage data missing for %s: years %s",
+                self.bundesland,
+                feiertage_missing,
             )
 
         return result
