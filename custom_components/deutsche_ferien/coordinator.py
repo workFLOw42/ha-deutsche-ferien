@@ -69,13 +69,16 @@ class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         try:
-            # ── Fetch Ferien ──────────────────────────────────────────
-            ferien = await fetch_ferien(self.hass, self.bundesland, von, bis)
+            # ── Fetch Ferien (single bulk request) ────────────────────
+            ferien, ferien_missing_years = await fetch_ferien(
+                self.hass, self.bundesland, von, bis
+            )
 
-            # ── Fetch Feiertage (optional) ────────────────────────────
+            # ── Fetch Feiertage (per-year requests, optional) ─────────
             feiertage: list[dict[str, Any]] | None = None
+            feiertage_missing_years: list[int] = []
             if self.include_national or self.include_regional:
-                feiertage = await fetch_feiertage(
+                feiertage, feiertage_missing_years = await fetch_feiertage(
                     self.hass,
                     self.bundesland,
                     von,
@@ -102,6 +105,11 @@ class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         today = date.today()
         today_str = today.isoformat()
 
+        # Combine missing years from both sources
+        all_missing = sorted(
+            set(ferien_missing_years + feiertage_missing_years)
+        )
+
         result: dict[str, Any] = {
             "bundesland": self.bundesland,
             "ferien_count": len(ferien),
@@ -120,6 +128,8 @@ class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "tage_bis_naechster_feiertag": None,
             "heute_schulfrei": False,
             "heute_grund": None,
+            "fehlende_jahre": all_missing,
+            "daten_vollstaendig": len(all_missing) == 0,
         }
 
         # ── Current / next Ferien ─────────────────────────────────────
@@ -159,5 +169,12 @@ class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     result["heute_schulfrei"] = True
                     result["heute_grund"] = ft["name"]
                     break
+
+        if all_missing:
+            _LOGGER.warning(
+                "Ferien/Feiertage data missing for years: %s "
+                "(APIs may not have published data yet)",
+                all_missing,
+            )
 
         return result

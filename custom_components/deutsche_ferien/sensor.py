@@ -31,6 +31,7 @@ async def async_setup_entry(
             FerienTagebisSensor(coordinator, bl, bl_name),
             FerienNaechsterFeiertagSensor(coordinator, bl, bl_name),
             FerienCountSensor(coordinator, bl, bl_name),
+            FerienDatenstatusSensor(coordinator, bl, bl_name),
         ]
     )
 
@@ -198,7 +199,13 @@ class FerienCountSensor(_FerienBase):
         if d := self.coordinator.data:
             fc = d.get("ferien_count", 0)
             ftc = d.get("feiertage_count", 0)
-            return f"{fc} Ferien, {ftc} Feiertage"
+            missing = d.get("fehlende_jahre", [])
+            if missing:
+                return (
+                    f"{fc} Ferien, {ftc} Feiertage "
+                    f"(⚠️ Daten fehlen für: {', '.join(str(y) for y in missing)})"
+                )
+            return f"{fc} Ferien, {ftc} Feiertage ✅"
         return None
 
     @property
@@ -210,6 +217,8 @@ class FerienCountSensor(_FerienBase):
             attrs["yaml_pfad"] = d.get("yaml_path", "")
             attrs["zeitraum_von"] = d.get("von", "")
             attrs["zeitraum_bis"] = d.get("bis", "")
+            attrs["daten_vollstaendig"] = d.get("daten_vollstaendig", False)
+            attrs["fehlende_jahre"] = d.get("fehlende_jahre", [])
             attrs["ferien_liste"] = [
                 f"{f['name']}: {f['start']} – {f['end']}"
                 for f in d.get("ferien", [])
@@ -218,4 +227,49 @@ class FerienCountSensor(_FerienBase):
                 f"{ft['name']}: {ft['datum']} ({ft['wochentag']})"
                 for ft in d.get("feiertage", [])
             ]
+        return attrs
+
+
+# ── Datenstatus ───────────────────────────────────────────────────────────
+
+
+class FerienDatenstatusSensor(_FerienBase):
+    """Data completeness status sensor."""
+
+    def __init__(self, coordinator, bl, bl_name):
+        super().__init__(
+            coordinator, bl, bl_name, "datenstatus", "Datenstatus"
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        if d := self.coordinator.data:
+            if d.get("daten_vollstaendig", False):
+                return "Vollständig"
+            missing = d.get("fehlende_jahre", [])
+            return f"Unvollständig ({', '.join(str(y) for y in missing)})"
+        return None
+
+    @property
+    def icon(self) -> str:
+        if d := self.coordinator.data:
+            if d.get("daten_vollstaendig", False):
+                return "mdi:check-circle"
+            return "mdi:alert-circle-outline"
+        return "mdi:help-circle-outline"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        attrs: dict[str, Any] = {}
+        if d := self.coordinator.data:
+            attrs["daten_vollstaendig"] = d.get("daten_vollstaendig", False)
+            attrs["fehlende_jahre"] = d.get("fehlende_jahre", [])
+            attrs["zeitraum_von"] = d.get("von", "")
+            attrs["zeitraum_bis"] = d.get("bis", "")
+            attrs["hinweis"] = (
+                "Alle angefragten Jahre haben Daten"
+                if d.get("daten_vollstaendig", False)
+                else "Einige Jahre sind bei den APIs noch nicht verfügbar. "
+                "Die Daten werden automatisch nachgeladen sobald verfügbar."
+            )
         return attrs
