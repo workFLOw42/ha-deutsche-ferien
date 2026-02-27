@@ -37,10 +37,9 @@
 - 🎌 **Nationale & regionale Feiertage** aus derselben Quelle
 - 📝 **YAML-Export** im HA-Konfigurationsverzeichnis (`{BL}_Ferien.yaml`)
 - 🔄 **Tägliche automatische Aktualisierung** + manueller Update-Button
-- 📊 **7 Sensoren**: Heute schulfrei?, Aktuelle/Nächste Ferien, Countdown, Datenstatus, etc.
+- 📊 **6 Sensoren**: Heute schulfrei?, Aktuelle/Nächste Ferien, Countdown, etc.
 - 🤖 **Service** `deutsche_ferien.update_ferien` für Automationen & Scripts
-- 🔮 Daten bis **3+ Jahre im Voraus** (inkl. Sommerferien des Zieljahres)
-- 📆 **Volles Schuljahr** – beginnt ab August des Vorjahres, damit Weihnachts-/Winterferien enthalten sind
+- 🔮 Daten für die **nächsten ~3 Jahre** – alles was die API liefert
 
 ---
 
@@ -81,8 +80,7 @@
 | `sensor.ferien_bayern_naechste_ferien` | `Sommerferien` |
 | `sensor.ferien_bayern_tage_bis_ferien` | `42` |
 | `sensor.ferien_bayern_naechster_feiertag` | `Fronleichnam` |
-| `sensor.ferien_bayern_uebersicht` | `18 Ferien (bis 2029), 42 Feiertage` |
-| `sensor.ferien_bayern_datenstatus` | `Vollständig ✅` |
+| `sensor.ferien_bayern_uebersicht` | `15 Ferien (bis 2029-01-07), 30 Feiertage` |
 
 ### 🔘 Button
 
@@ -130,26 +128,9 @@
 | `yaml_pfad` | Pfad zur erzeugten YAML-Datei |
 | `zeitraum_von` | Startdatum des abgedeckten Zeitraums |
 | `zeitraum_bis` | Enddatum des abgedeckten Zeitraums |
-| `ferien_daten_bis` | Letztes Jahr mit verfügbaren Feriendaten |
-| `daten_vollstaendig` | `true` / `false` |
-| `ferien_fehlende_jahre` | Liste fehlender Ferien-Jahre |
-| `feiertage_fehlende_jahre` | Liste fehlender Feiertage-Jahre |
+| `ferien_daten_bis` | Letztes Datum mit verfügbaren Feriendaten |
 | `ferien_liste` | Alle Ferien als Liste |
 | `feiertage_liste` | Alle Feiertage als Liste |
-
-</details>
-
-<details>
-<summary><strong>Datenstatus</strong></summary>
-
-| Attribut | Beschreibung |
-|---|---|
-| `ferien_vollstaendig` | Sind alle Ferien-Jahre verfügbar? |
-| `feiertage_vollstaendig` | Sind alle Feiertage-Jahre verfügbar? |
-| `ferien_daten_bis` | Letztes Jahr mit Feriendaten |
-| `ferien_fehlende_jahre` | Fehlende Ferien-Jahre |
-| `feiertage_fehlende_jahre` | Fehlende Feiertage-Jahre |
-| `hinweis` | Erklärung zum aktuellen Datenstatus |
 
 </details>
 
@@ -169,38 +150,27 @@ info:
   hinweis: "Automatisch generiert – nicht manuell bearbeiten"
 
 ferien:
-  - name: "Sommerferien"
-    von: "2025-08-01"
-    bis: "2025-09-15"
-  - name: "Herbstferien"
-    von: "2025-11-03"
-    bis: "2025-11-07"
-  - name: "Weihnachtsferien"
-    von: "2025-12-22"
-    bis: "2026-01-05"
-  - name: "Frühjahrsferien"
-    von: "2026-02-16"
-    bis: "2026-02-21"
   - name: "Osterferien"
     von: "2026-03-30"
-    bis: "2026-04-11"
+    bis: "2026-04-10"
   - name: "Pfingstferien"
     von: "2026-05-26"
-    bis: "2026-06-06"
+    bis: "2026-06-05"
   - name: "Sommerferien"
     von: "2026-08-03"
-    bis: "2026-09-15"
-  # ... weiter bis 2029
+    bis: "2026-09-14"
+  - name: "Herbstferien"
+    von: "2026-11-02"
+    bis: "2026-11-06"
+  - name: "Buß- und Bettag"
+    von: "2026-11-18"
+    bis: "2026-11-18"
+  - name: "Weihnachtsferien"
+    von: "2026-12-24"
+    bis: "2027-01-08"
+  # ... weiter bis ~2029
 
 feiertage:
-  - name: "Tag der Deutschen Einheit"
-    datum: "2025-10-03"
-    wochentag: "Freitag"
-    typ: "national"
-  - name: "Allerheiligen"
-    datum: "2025-11-01"
-    wochentag: "Samstag"
-    typ: "regional"
   - name: "Karfreitag"
     datum: "2026-04-03"
     wochentag: "Freitag"
@@ -209,15 +179,20 @@ feiertage:
     datum: "2026-06-04"
     wochentag: "Donnerstag"
     typ: "regional"
+  - name: "Tag der Deutschen Einheit"
+    datum: "2026-10-03"
+    wochentag: "Samstag"
+    typ: "national"
+  - name: "Allerheiligen"
+    datum: "2026-11-01"
+    wochentag: "Sonntag"
+    typ: "regional"
   # ...
 
 alle_freien_tage:
-  - datum: "2025-08-01"
-    wochentag: "Freitag"
-    grund: "Sommerferien"
-  - datum: "2025-10-03"
-    wochentag: "Freitag"
-    grund: "Tag der Deutschen Einheit"
+  - datum: "2026-03-30"
+    wochentag: "Montag"
+    grund: "Osterferien"
   - datum: "2026-04-03"
     wochentag: "Freitag"
     grund: "Osterferien / Karfreitag"
@@ -334,52 +309,30 @@ automation:
 
 | Quelle | API | Daten |
 |---|---|---|
-| [OpenHolidaysAPI](https://openholidaysapi.org) | `openholidaysapi.org/SchoolHolidays` | Schulferien aller Bundesländer |
-| [OpenHolidaysAPI](https://openholidaysapi.org) | `openholidaysapi.org/PublicHolidays` | Nationale & regionale Feiertage |
+| [OpenHolidaysAPI](https://openholidaysapi.org) | `/SchoolHolidays` | Schulferien aller Bundesländer |
+| [OpenHolidaysAPI](https://openholidaysapi.org) | `/PublicHolidays` | Nationale & regionale Feiertage |
 
-> **Seit v2.0.0**: Beide Datenquellen (Ferien + Feiertage) kommen von [OpenHolidaysAPI](https://openholidaysapi.org) – einer aktiv gepflegten, kostenlosen API mit Daten bis 2029+.
+Die Integration fragt ab heute die **nächsten ~3 Jahre** ab (1090 Tage, innerhalb des API-Limits von 1095 Tagen). Alles was die API liefert, wird übernommen – ohne künstliche Einschränkungen.
+
+> **Seit v2.0.0**: Beide Datenquellen (Ferien + Feiertage) kommen von [OpenHolidaysAPI](https://openholidaysapi.org) – einer aktiv gepflegten, kostenlosen API.
 >
-> Die vorherige Version nutzte ferien-api.de (nur bis 2026, nicht mehr gepflegt) und date.nager.at (Feiertage).
-
-### Zeitraum
-
-Die Integration lädt automatisch:
-- **Start**: 1. August des Vorjahres (volles aktuelles Schuljahr)
-- **Ende**: 30. September in 3 Jahren (inkl. Sommerferien)
-
-Beispiel (heute = Februar 2026):
-```
-von: 2025-08-01  →  Sommerferien 2025, Herbst, Weihnachten, Winter, ...
-bis: 2029-09-30  →  ... bis inkl. Sommerferien 2029
-```
-
----
-
-## 📋 Datenstatus
-
-Die Integration trackt automatisch, ob die API für alle angefragten Jahre Daten liefert:
-
-| Status | Bedeutung |
-|---|---|
-| `Vollständig ✅` | Alle Jahre haben Ferien- und Feiertagsdaten |
-| `Ferien nur bis 2029 (fehlt: 2030)` | API hat noch keine Daten für 2030 |
-
-Fehlende Daten werden **automatisch nachgeladen**, sobald die API sie veröffentlicht – beim nächsten täglichen Update oder manuellen Refresh.
+> v1.x nutzte ferien-api.de (nicht mehr gepflegt, nur bis 2026) und date.nager.at.
 
 ---
 
 ## 🔄 Migration von v1.x auf v2.0
 
-v2.0 wechselt die Datenquelle von ferien-api.de/date.nager.at zu OpenHolidaysAPI:
-
 | | v1.x | v2.0 |
 |---|---|---|
-| Ferien-Quelle | ferien-api.de | openholidaysapi.org |
-| Feiertage-Quelle | date.nager.at | openholidaysapi.org |
-| Ferien-Daten bis | 2026 | 2029+ |
-| API-Calls | 1 + N pro Jahr | 2 total |
+| Ferien-Quelle | ferien-api.de (veraltet) | openholidaysapi.org ✅ |
+| Feiertage-Quelle | date.nager.at | openholidaysapi.org ✅ |
+| Ferien-Daten bis | 2026 | ~2029 ✅ |
+| API-Calls | 1 + N pro Jahr | 2 total ✅ |
+| Sensoren | 7 (inkl. Datenstatus) | 6 (vereinfacht) ✅ |
 
-**Upgrade**: Einfach über HACS aktualisieren und HA neu starten. Die YAML-Datei wird automatisch neu generiert. Sensoren bleiben erhalten.
+**Upgrade**: Über HACS aktualisieren → HA neu starten. Die YAML-Datei wird automatisch neu generiert. Sensoren bleiben erhalten.
+
+> ⚠️ Der `sensor.ferien_*_datenstatus` Sensor aus v1.x existiert in v2.0 nicht mehr. Falls du ihn in Automationen nutzt, entferne die Referenz vor dem Update.
 
 ---
 
@@ -409,28 +362,21 @@ In dein **HA-Konfigurationsverzeichnis** (dort wo `configuration.yaml` liegt). D
 <details>
 <summary><strong>Wie weit in die Zukunft reichen die Daten?</strong></summary>
 
-**3 Jahre im Voraus**, immer einschließlich der Sommerferien des Zieljahres. OpenHolidaysAPI hat aktuell Daten bis 2029. Sobald 2030 veröffentlicht wird, lädt die Integration sie automatisch.
-
-</details>
-
-<details>
-<summary><strong>Was bedeutet „Ferien nur bis 20XX"?</strong></summary>
-
-Die API hat noch keine Daten für spätere Jahre veröffentlicht. Das ist normal – Schulferien werden von den Kultusministerien erst einige Jahre im Voraus festgelegt. Sobald neue Daten verfügbar sind, werden sie automatisch geladen.
+Die Integration fragt die **nächsten ~3 Jahre** ab. Es werden alle Daten übernommen, die die API liefert. Aktuell hat OpenHolidaysAPI Feriendaten bis ca. 2029. Sobald neue Daten veröffentlicht werden, sind sie beim nächsten Update automatisch dabei.
 
 </details>
 
 <details>
 <summary><strong>Der HACS-Installs-Badge zeigt „no result"?</strong></summary>
 
-Das ist normal bei neuen Integrationen. Der Badge speist sich aus den [HA Analytics](https://analytics.home-assistant.io/) – Nutzer müssen in ihrem HA unter Einstellungen → Analytics die Option „Benutzerdefinierte Integrationen teilen" aktiviert haben. Es dauert ca. 1–2 Wochen.
+Normal bei neuen Integrationen. Der Badge speist sich aus den [HA Analytics](https://analytics.home-assistant.io/) – Nutzer müssen unter Einstellungen → Analytics die Option „Benutzerdefinierte Integrationen teilen" aktiviert haben. Dauert ca. 1–2 Wochen.
 
 </details>
 
 <details>
 <summary><strong>Warum v2.0? Was hat sich geändert?</strong></summary>
 
-v2.0 wechselt die Datenquelle von ferien-api.de (nicht mehr gepflegt, nur bis 2026) zu [OpenHolidaysAPI](https://openholidaysapi.org) (aktiv gepflegt, Daten bis 2029+). Feiertage kommen jetzt ebenfalls von OpenHolidaysAPI statt date.nager.at. Weniger API-Calls, mehr Daten.
+v2.0 wechselt die Datenquelle von ferien-api.de (nicht mehr gepflegt, nur bis 2026) zu [OpenHolidaysAPI](https://openholidaysapi.org) (aktiv gepflegt, Daten bis ~2029). Feiertage kommen jetzt ebenfalls von OpenHolidaysAPI statt date.nager.at. Weniger API-Calls, mehr Daten, einfacherer Code.
 
 </details>
 
