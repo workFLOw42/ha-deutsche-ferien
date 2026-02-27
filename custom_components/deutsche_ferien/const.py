@@ -8,7 +8,6 @@ CONF_FEIERTAGE_NATIONAL = "feiertage_national"
 CONF_FEIERTAGE_REGIONAL = "feiertage_regional"
 
 DEFAULT_SCAN_INTERVAL = 86400
-YEARS_AHEAD = 3
 
 BUNDESLAENDER: dict[str, str] = {
     "BW": "Baden-Württemberg",
@@ -29,7 +28,6 @@ BUNDESLAENDER: dict[str, str] = {
     "TH": "Thüringen",
 }
 
-# OpenHolidaysAPI uses DE-XX subdivision codes
 BUNDESLAND_TO_SUBDIVISION: dict[str, str] = {
     code: f"DE-{code}" for code in BUNDESLAENDER
 }
