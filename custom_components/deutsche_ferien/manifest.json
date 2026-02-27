@@ -1,0 +1,13 @@
+{
+  "domain": "deutsche_ferien",
+  "name": "Deutsche Schulferien & Feiertage",
+  "codeowners": ["@workFLOw42"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/workFLOw42/ha-deutsche-ferien",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/workFLOw42/ha-deutsche-ferien/issues",
+  "requirements": [],
+  "version": "1.0.0",
+  "integration_type": "service"
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Deutsche Schulferien & Feiertage",
+  "homeassistant": "2024.1.0",
+  "render_readme": true,
+  "domains": ["sensor", "button"]
+}

@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Deutsche Schulferien & Feiertage",
+        "description": "Wähle das Bundesland und ob Feiertage einbezogen werden sollen. Die Daten werden als YAML-Datei im Home Assistant Konfigurationsverzeichnis gespeichert.",
+        "data": {
+          "bundesland": "Bundesland",
+          "feiertage_national": "Nationale Feiertage einbeziehen",
+          "feiertage_regional": "Regionale Feiertage (Bundesland-spezifisch) einbeziehen"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Dieses Bundesland ist bereits konfiguriert."
+    }
+  },
+  "services": {
+    "update_ferien": {
+      "name": "Ferien aktualisieren",
+      "description": "Aktualisiert alle Ferien- und Feiertagsdaten und schreibt die YAML-Dateien neu."
+    }
+  }
+}

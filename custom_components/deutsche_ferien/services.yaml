@@ -1,0 +1,5 @@
+update_ferien:
+  name: Ferien aktualisieren
+  description: >-
+    Aktualisiert die Schulferien- und Feiertagsdaten für alle konfigurierten
+    Bundesländer und schreibt die YAML-Dateien neu.

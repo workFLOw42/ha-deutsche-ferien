@@ -1,0 +1,18 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "German School Holidays & Public Holidays",
+        "description": "Select the federal state and whether to include public holidays. Data will be saved as {bundesland}_Ferien.yaml in your HA config directory.",
+        "data": {
+          "bundesland": "Federal State",
+          "feiertage_national": "Include national public holidays",
+          "feiertage_regional": "Include regional public holidays (state-specific)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This federal state is already configured."
+    }
+  }
+}
