@@ -1,4 +1,4 @@
-"""API clients for ferien-api.de and date.nager.at."""
+"""API clients for openholidaysapi.org (Ferien + Feiertage)."""
 from __future__ import annotations
 
 import logging
@@ -8,12 +8,11 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import BUNDESLAND_TO_COUNTY
+from .const import BUNDESLAND_TO_SUBDIVISION
 
 _LOGGER = logging.getLogger(__name__)
 
-FERIEN_API_BASE = "https://ferien-api.de/api/v1/holidays"
-NAGER_API_BASE = "https://date.nager.at/api/v3/PublicHolidays"
+OPENHOLIDAYS_BASE = "https://openholidaysapi.org"
 
 WOCHENTAGE = [
     "Montag",
@@ -30,9 +29,15 @@ class FerienApiError(Exception):
     """Error communicating with holiday APIs."""
 
 
-def _parse_iso_date(raw: str) -> date:
-    """Parse an ISO date string, tolerating trailing time/timezone parts."""
-    return datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
+def _get_localized_name(name_list: list[dict], fallback: str = "Ferien") -> str:
+    """Extract German name from OpenHolidaysAPI name array."""
+    for entry in name_list:
+        if entry.get("language") == "DE":
+            return entry.get("text", fallback)
+    # Fallback to first entry
+    if name_list:
+        return name_list[0].get("text", fallback)
+    return fallback
 
 
 async def fetch_ferien(
@@ -41,56 +46,55 @@ async def fetch_ferien(
     von: date,
     bis: date,
 ) -> tuple[list[dict[str, Any]], list[int]]:
-    """Fetch ALL school holidays for a Bundesland, then filter by date range.
-
-    Uses the /api/v1/holidays/{state} endpoint which returns ALL available
-    years in a single request – much more reliable than per-year requests.
+    """Fetch school holidays from OpenHolidaysAPI.
 
     Returns:
         Tuple of (ferien_list, missing_years)
     """
     session = async_get_clientsession(hass)
-    url = f"{FERIEN_API_BASE}/{bundesland}"
-    _LOGGER.debug("Fetching ALL Ferien for %s: %s", bundesland, url)
+    subdivision = BUNDESLAND_TO_SUBDIVISION.get(bundesland, f"DE-{bundesland}")
+
+    url = (
+        f"{OPENHOLIDAYS_BASE}/SchoolHolidays"
+        f"?countryIsoCode=DE"
+        f"&languageIsoCode=DE"
+        f"&validFrom={von.isoformat()}"
+        f"&validTo={bis.isoformat()}"
+        f"&subdivisionCode={subdivision}"
+    )
+
+    _LOGGER.debug("Fetching Ferien: %s", url)
 
     ferien: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     years_with_data: set[int] = set()
-    missing_years: list[int] = []
 
     try:
         async with session.get(url, timeout=30) as resp:
             if resp.status != 200:
                 _LOGGER.error("HTTP %s for %s", resp.status, url)
-                missing_years = list(range(von.year, bis.year + 1))
-                return ferien, missing_years
+                return ferien, list(range(von.year, bis.year + 1))
             data = await resp.json()
     except Exception as err:
         _LOGGER.error("Error fetching %s: %s", url, err)
-        missing_years = list(range(von.year, bis.year + 1))
-        return ferien, missing_years
+        return ferien, list(range(von.year, bis.year + 1))
 
     if not data:
         _LOGGER.warning("Empty response from %s", url)
-        missing_years = list(range(von.year, bis.year + 1))
-        return ferien, missing_years
+        return ferien, list(range(von.year, bis.year + 1))
 
-    _LOGGER.debug(
-        "Received %d total holiday entries for %s", len(data), bundesland
-    )
+    _LOGGER.debug("Received %d school holiday entries", len(data))
 
     for entry in data:
         try:
-            start = _parse_iso_date(entry.get("start", ""))
-            end = _parse_iso_date(entry.get("end", ""))
+            start = date.fromisoformat(entry.get("startDate", ""))
+            end = date.fromisoformat(entry.get("endDate", ""))
         except (ValueError, TypeError) as err:
             _LOGGER.warning("Cannot parse dates in %s: %s", entry, err)
             continue
 
-        name = entry.get("name", "Ferien")
-        slug = entry.get("slug", "")
+        name = _get_localized_name(entry.get("name", []), "Ferien")
 
-        # Track which years have data
         years_with_data.add(start.year)
         years_with_data.add(end.year)
 
@@ -100,30 +104,21 @@ async def fetch_ferien(
             continue
         seen.add(key)
 
-        # Only include if overlapping with requested range
-        if end < von or start > bis:
-            continue
-
-        # Clip to requested range
         ferien.append(
             {
                 "name": name,
-                "slug": slug,
-                "start": max(start, von).isoformat(),
-                "end": min(end, bis).isoformat(),
+                "start": start.isoformat(),
+                "end": end.isoformat(),
             }
         )
 
-    # Determine which requested years have no data
+    # Determine missing years
     requested_years = set(range(von.year, bis.year + 1))
     missing_years = sorted(requested_years - years_with_data)
 
     if missing_years:
         _LOGGER.warning(
-            "No Ferien data available for %s years: %s "
-            "(ferien-api.de may not have published data yet)",
-            bundesland,
-            missing_years,
+            "No Ferien data for years: %s", missing_years
         )
 
     ferien.sort(key=lambda x: x["start"])
@@ -148,80 +143,103 @@ async def fetch_feiertage(
     include_national: bool = True,
     include_regional: bool = True,
 ) -> tuple[list[dict[str, Any]], list[int]]:
-    """Fetch public holidays (national and/or regional).
-
-    Note: date.nager.at requires per-year requests – no bulk endpoint available.
+    """Fetch public holidays from OpenHolidaysAPI.
 
     Returns:
         Tuple of (feiertage_list, missing_years)
     """
     session = async_get_clientsession(hass)
-    county_code = BUNDESLAND_TO_COUNTY.get(bundesland, f"DE-{bundesland}")
-    jahre = sorted(set(range(von.year, bis.year + 1)))
+    subdivision = BUNDESLAND_TO_SUBDIVISION.get(bundesland, f"DE-{bundesland}")
+
+    url = (
+        f"{OPENHOLIDAYS_BASE}/PublicHolidays"
+        f"?countryIsoCode=DE"
+        f"&languageIsoCode=DE"
+        f"&validFrom={von.isoformat()}"
+        f"&validTo={bis.isoformat()}"
+        f"&subdivisionCode={subdivision}"
+    )
+
+    _LOGGER.debug("Fetching Feiertage: %s", url)
+
     feiertage: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
-    missing_years: list[int] = []
+    years_with_data: set[int] = set()
 
-    for jahr in jahre:
-        url = f"{NAGER_API_BASE}/{jahr}/DE"
-        _LOGGER.debug("Fetching Feiertage: %s", url)
+    try:
+        async with session.get(url, timeout=30) as resp:
+            if resp.status != 200:
+                _LOGGER.error("HTTP %s for %s", resp.status, url)
+                return feiertage, list(range(von.year, bis.year + 1))
+            data = await resp.json()
+    except Exception as err:
+        _LOGGER.error("Error fetching %s: %s", url, err)
+        return feiertage, list(range(von.year, bis.year + 1))
 
+    if not data:
+        return feiertage, list(range(von.year, bis.year + 1))
+
+    _LOGGER.debug("Received %d public holiday entries", len(data))
+
+    for entry in data:
         try:
-            async with session.get(url, timeout=15) as resp:
-                if resp.status != 200:
-                    _LOGGER.error("HTTP %s for %s", resp.status, url)
-                    missing_years.append(jahr)
-                    continue
-                data = await resp.json()
-        except Exception as err:
-            _LOGGER.error("Error fetching %s: %s", url, err)
-            missing_years.append(jahr)
+            d = date.fromisoformat(entry.get("startDate", ""))
+        except (ValueError, TypeError):
             continue
 
-        if not data:
-            missing_years.append(jahr)
+        name = _get_localized_name(entry.get("name", []), "Feiertag")
+
+        # Determine type
+        is_national = entry.get("nationwide", False)
+        subdivisions = entry.get("subdivisions") or []
+        subdivision_codes = [s.get("code", "") for s in subdivisions]
+        is_regional = subdivision in subdivision_codes
+
+        # Filter based on user preferences
+        include = False
+        tag_type = ""
+        if is_national and include_national:
+            include = True
+            tag_type = "national"
+        elif is_regional and include_regional:
+            include = True
+            tag_type = "regional"
+        elif not subdivisions and include_national:
+            # No subdivision info = treat as national
+            include = True
+            tag_type = "national"
+
+        if not include:
             continue
 
-        for entry in data:
-            try:
-                d = date.fromisoformat(entry["date"])
-            except (ValueError, TypeError):
-                continue
+        years_with_data.add(d.year)
 
-            if d < von or d > bis:
-                continue
+        key = (name, d.isoformat())
+        if key in seen:
+            continue
+        seen.add(key)
 
-            name = entry.get("localName", entry.get("name", "Feiertag"))
-            counties = entry.get("counties") or []
+        feiertage.append(
+            {
+                "name": name,
+                "datum": d.isoformat(),
+                "wochentag": WOCHENTAGE[d.weekday()],
+                "typ": tag_type,
+            }
+        )
 
-            is_national = len(counties) == 0
-            is_regional = county_code in counties
-
-            include = False
-            tag_type = ""
-            if is_national and include_national:
-                include = True
-                tag_type = "national"
-            elif is_regional and include_regional:
-                include = True
-                tag_type = "regional"
-
-            if not include:
-                continue
-
-            key = (name, d.isoformat())
-            if key in seen:
-                continue
-            seen.add(key)
-
-            feiertage.append(
-                {
-                    "name": name,
-                    "datum": d.isoformat(),
-                    "wochentag": WOCHENTAGE[d.weekday()],
-                    "typ": tag_type,
-                }
-            )
+    requested_years = set(range(von.year, bis.year + 1))
+    missing_years = sorted(requested_years - years_with_data)
 
     feiertage.sort(key=lambda x: x["datum"])
+
+    _LOGGER.info(
+        "Fetched %d Feiertage for %s (%s → %s), missing years: %s",
+        len(feiertage),
+        bundesland,
+        von,
+        bis,
+        missing_years or "none",
+    )
+
     return feiertage, missing_years

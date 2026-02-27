@@ -7,13 +7,9 @@ CONF_BUNDESLAND = "bundesland"
 CONF_FEIERTAGE_NATIONAL = "feiertage_national"
 CONF_FEIERTAGE_REGIONAL = "feiertage_regional"
 
-# Refresh once per day (seconds)
 DEFAULT_SCAN_INTERVAL = 86400
-
-# How many years ahead to fetch (including summer holidays of target year)
 YEARS_AHEAD = 3
 
-# All 16 Bundesländer: code → name
 BUNDESLAENDER: dict[str, str] = {
     "BW": "Baden-Württemberg",
     "BY": "Bayern",
@@ -33,7 +29,7 @@ BUNDESLAENDER: dict[str, str] = {
     "TH": "Thüringen",
 }
 
-# Mapping to date.nager.at county codes
-BUNDESLAND_TO_COUNTY: dict[str, str] = {
+# OpenHolidaysAPI uses DE-XX subdivision codes
+BUNDESLAND_TO_SUBDIVISION: dict[str, str] = {
     code: f"DE-{code}" for code in BUNDESLAENDER
 }
