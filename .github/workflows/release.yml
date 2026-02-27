@@ -1,0 +1,91 @@
+name: Create Release
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    name: "Create GitHub Release"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Get manifest version
+        id: manifest
+        run: |
+          manifest_version=$(python3 -c "
+          import json
+          with open('custom_components/deutsche_ferien/manifest.json') as f:
+              print(json.load(f)['version'])
+          ")
+          echo "manifest_version=v${manifest_version}" >> $GITHUB_OUTPUT
+
+      - name: Verify tag matches manifest
+        run: |
+          if [ "${{ steps.version.outputs.version }}" != "${{ steps.manifest.outputs.manifest_version }}" ]; then
+            echo "❌ Tag ${{ steps.version.outputs.version }} does not match manifest ${{ steps.manifest.outputs.manifest_version }}"
+            exit 1
+          fi
+          echo "✅ Tag matches manifest version"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get commits since last tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            COMMITS=$(git log --oneline --pretty=format:"- %s" HEAD)
+          else
+            COMMITS=$(git log --oneline --pretty=format:"- %s" ${PREV_TAG}..HEAD)
+          fi
+
+          # Categorize commits
+          FEATURES=$(echo "$COMMITS" | grep -iE "^- (feat|feature|add|new)" || true)
+          FIXES=$(echo "$COMMITS" | grep -iE "^- (fix|bugfix|patch|correct)" || true)
+          OTHER=$(echo "$COMMITS" | grep -viE "^- (feat|feature|add|new|fix|bugfix|patch|correct)" || true)
+
+          # Build changelog
+          {
+            echo "changelog<<EOF"
+            echo "## What's Changed"
+            echo ""
+            if [ -n "$FEATURES" ]; then
+              echo "### ✨ New Features"
+              echo "$FEATURES"
+              echo ""
+            fi
+            if [ -n "$FIXES" ]; then
+              echo "### 🐛 Bug Fixes"
+              echo "$FIXES"
+              echo ""
+            fi
+            if [ -n "$OTHER" ]; then
+              echo "### 📦 Other Changes"
+              echo "$OTHER"
+              echo ""
+            fi
+            echo "---"
+            echo ""
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${{ steps.version.outputs.version }}"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: "${{ steps.version.outputs.version }} – Deutsche Schulferien & Feiertage"
+          body: ${{ steps.changelog.outputs.changelog }}
+          draft: false
+          prerelease: false
+          generate_release_notes: false
