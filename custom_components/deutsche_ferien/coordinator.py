@@ -138,11 +138,12 @@ class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             f_end = date.fromisoformat(f["end"])
             if f_start <= today <= f_end:
                 result["aktuelle_ferien"] = f["name"]
-                break
-            if f_start > today and result["naechste_ferien"] is None:
+            elif f_start > today and result["naechste_ferien"] is None:
                 result["naechste_ferien"] = f["name"]
                 result["naechste_ferien_start"] = f["start"]
                 result["tage_bis_naechste_ferien"] = (f_start - today).days
+            if result["aktuelle_ferien"] and result["naechste_ferien"]:
+                break
 
         # Next Feiertag
         if feiertage:
