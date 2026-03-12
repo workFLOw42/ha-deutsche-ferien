@@ -109,7 +109,7 @@ async def fetch_ferien(
 
     data = await _api_request(session, url, f"Ferien-{bundesland}")
     if data is None:
-        return []
+        raise FerienApiError(f"Failed to fetch Ferien for {bundesland}")
 
     ferien: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
@@ -167,7 +167,7 @@ async def fetch_feiertage(
 
     data = await _api_request(session, url, f"Feiertage-{bundesland}")
     if data is None:
-        return []
+        raise FerienApiError(f"Failed to fetch Feiertage for {bundesland}")
 
     feiertage: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
