@@ -24,8 +24,12 @@ def _represent_str(dumper: yaml.Dumper, data: str) -> Any:
     return dumper.represent_scalar("tag:yaml.org,2002:str", data)
 
 
-yaml.add_representer(OrderedDict, _represent_ordereddict)
-yaml.add_representer(str, _represent_str)
+class _FerienDumper(yaml.Dumper):
+    """Custom YAML dumper to avoid polluting the global yaml.Dumper."""
+
+
+_FerienDumper.add_representer(OrderedDict, _represent_ordereddict)
+_FerienDumper.add_representer(str, _represent_str)
 
 
 def write_ferien_yaml(
@@ -70,6 +74,7 @@ def write_ferien_yaml(
         yaml.dump(
             doc,
             fh,
+            Dumper=_FerienDumper,
             default_flow_style=False,
             allow_unicode=True,
             sort_keys=False,
