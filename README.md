@@ -1,7 +1,7 @@
 # 🎒 Deutsche Schulferien & Feiertage
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/workFLOw42/ha-deutsche-ferien/main/images/logo-hires.png" alt="Deutsche Schulferien & Feiertage" width="256">
+  <img src="https://raw.githubusercontent.com/workFLOw42/ha-deutsche-ferien/main/custom_components/deutsche_ferien/brand/logo@2x.png" alt="Deutsche Schulferien & Feiertage" width="256">
 </p>
 
 <p align="center">
