@@ -121,7 +121,8 @@ class FerienNaechsterFeiertagSensor(_FerienBase):
         if d := self.coordinator.data:
             if datum := d.get("naechster_feiertag_datum"):
                 attrs["datum"] = datum
-            if tage := d.get("tage_bis_naechster_feiertag"):
+            tage = d.get("tage_bis_naechster_feiertag")
+            if tage is not None:
                 attrs["tage_bis"] = tage
         return attrs
 

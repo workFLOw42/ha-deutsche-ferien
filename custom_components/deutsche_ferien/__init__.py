@@ -19,7 +19,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Deutsche Ferien from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    coordinator = FerienCoordinator(hass, dict(entry.data))
+    coordinator = FerienCoordinator(hass, entry, dict(entry.data))
     await coordinator.async_config_entry_first_refresh()
 
     hass.data[DOMAIN][entry.entry_id] = coordinator

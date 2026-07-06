@@ -5,6 +5,7 @@ import logging
 from datetime import date, timedelta
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -44,6 +45,7 @@ class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def __init__(
         self,
         hass: HomeAssistant,
+        config_entry: ConfigEntry,
         config_data: dict[str, Any],
     ) -> None:
         self.bundesland: str = config_data[CONF_BUNDESLAND]
@@ -58,6 +60,7 @@ class FerienCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=config_entry,
             name=f"{DOMAIN}_{self.bundesland}",
             update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
